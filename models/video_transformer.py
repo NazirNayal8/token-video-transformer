@@ -39,6 +39,7 @@ class DividedVideoTransformer(nn.Module):
             token_dim: int,
             tokenizer_type: str = 'late_temporal',
             backbone_type: str = 'resnet18',
+            backbone_mode: str = 'no_freeze',
             pretrained_backbone: bool = False,
             num_classes: int = 10,
             transformer_layers=None,
@@ -58,6 +59,7 @@ class DividedVideoTransformer(nn.Module):
         self.temporal_dim = temporal_dim
         self.token_dim = token_dim
         self.backbone_type = backbone_type
+        self.backbone_mode = backbone_mode
         self.transformer_layers = transformer_layers
         self.num_heads = num_heads
         self.feedforward_dim = feedforward_dim
@@ -65,12 +67,23 @@ class DividedVideoTransformer(nn.Module):
         self.activation = activation
 
         self.backbone = get_backbone(backbone_type, pretrained_backbone)
+        
+        # NOTE: this freezeing method only works for convolutional backbones
+        if backbone_mode == 'partial_freeze':
+            for n, p in self.backbone.named_parameters():
+                if "conv1" in n or "bn1" in n or "layer1" in n:
+                    p.requires_grad = False
+        elif backbone_mode == 'freeze':
+            for n, p in self.backbone.named_parameters():
+                if "conv" in n or "bn" in n or "layer" in n:
+                    p.requires_grad = False
+        
         self.in_channels = self.backbone.backbone_channel_output
         self.tokenizer = get_tokenizer(tokenizer_type, self.in_channels, spatial_dim, temporal_dim, token_dim)
 
         self.transformer = DividedTransformer(token_dim, transformer_layers, num_heads, feedforward_dim, dropout,
                                               activation)
-
+        
         self.classifier = nn.Linear(spatial_dim * temporal_dim * token_dim, num_classes)
 
     def forward(self, x: Tensor):
@@ -88,8 +101,9 @@ class DividedVideoTransformer(nn.Module):
 
         x = x.permute(0, 2, 3, 1)  # -> (B * T, H, W, C)
         x = x.reshape(B, T, -1, self.in_channels)  # -> (B, T, HW, C)
-
+    
         t = self.tokenizer(x)  # -> (B, F, L, D)
+        
         t = self.transformer(t)  # -> (B, F, L, D)
 
         x_out = t.flatten(start_dim=1)  # -> (B, F * L * D)

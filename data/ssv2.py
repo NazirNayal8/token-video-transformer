@@ -6,6 +6,7 @@ import random
 import math
 import torch
 from torch.utils.data import Dataset
+from torchvision.transforms.functional import to_tensor
 from typing import Any
 
 class SSV2Dataset(Dataset):
@@ -21,12 +22,14 @@ class SSV2Dataset(Dataset):
     test_path = os.path.join(labels_root, 'something-something-v2-test.json')
     labels_path = os.path.join(labels_root, 'something-something-v2-labels.json')
     
-    def __init__(self, mode: str, num_samples: int, transforms=None, filter_by_labels=None):
+    def __init__(self, mode: str, num_samples: int, transforms=None, filter_by_labels=None, 
+                    transforms_per_frame=None):
         super().__init__()
         
         self.mode = mode
         self.num_samples = num_samples
         self.transforms = transforms
+        self.transforms_per_frame = transforms_per_frame
         self.labels_dict = self._read_labels_dict()
         self.labels = self._read_labels(mode)
         
@@ -131,13 +134,18 @@ class SSV2Dataset(Dataset):
         vid_path = os.path.join(self.videos_path, str(vid_id) + '.webm')
         frames, fps = self._read_video_frames(vid_path)
         
-        frames = self._sample_random(frames)
         
-        if self.transforms:
+        if self.transforms_per_frame:
+
+            frames = self._sample_random(frames)
+
             frames_transformed = [0] * frames.shape[0]
             for i in range(frames.shape[0]):
-                frames_transformed[i] = self.transforms(frames[i]).unsqueeze(0)
+                frames_transformed[i] = self.transforms_per_frame(frames[i]).unsqueeze(0)
             frames = torch.cat(frames_transformed, axis=0)
+
+        if self.transforms:
+            frames = self.transforms(frames)    
         
         if self.mode == 'test':
             return frames
